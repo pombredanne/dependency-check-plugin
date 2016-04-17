@@ -18,22 +18,15 @@ package org.jenkinsci.plugins.DependencyCheck;
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.Launcher;
-import hudson.PluginWrapper;
-import hudson.ProxyConfiguration;
 import hudson.maven.AbstractMavenProject;
 import hudson.maven.MavenModule;
 import hudson.maven.MavenModuleSet;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
-import hudson.model.Cause;
-import hudson.model.Hudson;
-import hudson.remoting.Callable;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.Builder;
-import hudson.triggers.SCMTrigger;
 import hudson.util.FormValidation;
-import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.SystemUtils;
@@ -50,7 +43,6 @@ import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * The DependencyCheck builder class provides the ability to invoke a DependencyCheck build as
@@ -61,7 +53,7 @@ import java.util.List;
  * @author Steve Springett (steve.springett@owasp.org)
  */
 @SuppressWarnings("unused")
-public class DependencyCheckBuilder extends Builder implements Serializable {
+public class DependencyCheckBuilder extends AbstractDependencyCheckBuilder implements Serializable {
 
     private static final long serialVersionUID = 5594574614031769847L;
 
@@ -73,11 +65,7 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
     private final boolean isAutoupdateDisabled;
     private final boolean isVerboseLoggingEnabled;
     private final boolean includeHtmlReports;
-    private final boolean skipOnScmChange;
-    private final boolean skipOnUpstreamChange;
-    private final boolean useMavenArtifactsScanPath;
-
-    private static final String OUT_TAG = "[" + DependencyCheckPlugin.PLUGIN_NAME + "] ";
+    @Deprecated private final boolean useMavenArtifactsScanPath;
 
 
     @DataBoundConstructor // Fields in config.jelly must match the parameter names
@@ -184,7 +172,10 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
      * Retrieves whether Maven artifacts from the build should be used as the scan path.
      * This is a per-build config item.
      * This method must match the value in <tt>config.jelly</tt>.
+     *
+     * @deprecated will be removed in a future version
      */
+    @Deprecated
     public boolean areMavenArtifactsUsedForScanPath() {
         return useMavenArtifactsScanPath;
     }
@@ -192,7 +183,10 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
     /**
      * Convenience method that determines if the project is a Maven project.
      * @param clazz The projects class
+     *
+     * @deprecated will be removed in a future version
      */
+    @Deprecated
     public boolean isMaven(Class<? extends AbstractProject> clazz) {
         return MavenModuleSet.class.isAssignableFrom(clazz) || MavenModule.class.isAssignableFrom(clazz);
     }
@@ -205,75 +199,13 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
      * @param listener A BuildListener object
      * @return A true or false value indicating if the build was successful or if it failed
      */
-    @Override
+   @Override
     public boolean perform(final AbstractBuild build, final Launcher launcher, final BuildListener listener)
             throws InterruptedException, IOException {
 
-        // Determine if the build should be skipped or not
-        if (isSkip(build, listener)) {
-            return true;
-        }
-
-        // Get the version of the plugin and print it out
-        final PluginWrapper wrapper = Hudson.getInstance().getPluginManager().getPlugin(DependencyCheckDescriptor.PLUGIN_ID);
-        listener.getLogger().println(OUT_TAG + wrapper.getLongName() + " v" + wrapper.getVersion());
-
-        final ClassLoader classLoader = wrapper.classLoader;
-        final boolean isMaster = (build.getBuiltOn() == Hudson.getInstance());
-
-        // Generate the Dependency-Check options - later used by DependencyCheckExecutor
-        final Options options = generateOptions(build, listener, isMaster, classLoader);
-
-        // Node-agnostic execution of Dependency-Check
-        if (isMaster) {
-            return launcher.getChannel().call(new Callable<Boolean, IOException>() {
-                public Boolean call() throws IOException {
-                    final DependencyCheckExecutor executor = new DependencyCheckExecutor(options, listener, classLoader);
-                    return executor.performBuild();
-                }
-            });
-        } else {
-            return launcher.getChannel().call(new Callable<Boolean, IOException>() {
-                public Boolean call() throws IOException {
-                    final DependencyCheckExecutor executor = new DependencyCheckExecutor(options, listener);
-                    return executor.performBuild();
-                }
-            });
-        }
-    }
-
-    /**
-     * Determine if the build should be skipped or not
-     */
-    private boolean isSkip(AbstractBuild build, BuildListener listener) {
-        boolean skip = false;
-
-        // Determine if the OWASP_DC_SKIP environment variable is set to true
-        try {
-            skip = Boolean.parseBoolean(build.getEnvironment(listener).get("OWASP_DC_SKIP"));
-        } catch (Exception e) { /* throw it away */ }
-
-
-        // Why was this build triggered? Get the causes and find out.
-        @SuppressWarnings("unchecked")
-        final List<Cause> causes = build.getCauses();
-        for (Cause cause: causes) {
-            // Skip if the build is configured to skip on SCM change and the cause of the build was an SCM trigger
-            if (skipOnScmChange && cause instanceof SCMTrigger.SCMTriggerCause) {
-                skip = true;
-            }
-            // Skip if the build is configured to skip on Upstream change and the cause of the build was an Upstream trigger
-            if (skipOnUpstreamChange && cause instanceof Cause.UpstreamCause) {
-                skip = true;
-            }
-        }
-
-        // Log a message if being skipped
-        if (skip) {
-            listener.getLogger().println(OUT_TAG + "Skipping Dependency-Check analysis.");
-        }
-
-        return skip;
+       final Options options = generateOptions(build, listener);
+       setOptions(options);
+       return super.perform(build, launcher, listener);
     }
 
     /**
@@ -282,29 +214,28 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
      * @param build an AbstractBuild object
      * @return DependencyCheck Options
      */
-    private Options generateOptions(AbstractBuild build, BuildListener listener, boolean isMaster, ClassLoader classLoader) {
-        final Options options = new Options();
+    private Options generateOptions(AbstractBuild build, BuildListener listener) {
+        // Generate Options object with universal settings necessary for all Builder steps
+        final Options options = optionsBuilder(build, listener, outdir, isVerboseLoggingEnabled, this.getDescriptor().getTempPath(), this.getDescriptor().isQuickQueryTimestampEnabled);
 
-        // Sets the DependencyCheck application name to the Jenkins display name. If a display name
-        // was not defined, it will simply return the name of the build.
-        options.setName(build.getProject().getDisplayName());
+        // Configure universal settings useful for all Builder steps
+        configureDataDirectory(build, listener, options, datadir);
+        configureDataMirroring(options, this.getDescriptor().getDataMirroringType(),
+                this.getDescriptor().getCveUrl12Modified(), this.getDescriptor().getCveUrl20Modified(),
+                this.getDescriptor().getCveUrl12Base(), this.getDescriptor().getCveUrl20Base());
+        configureProxySettings(options, this.getDescriptor().getIsNvdProxyBypassed());
 
-        // If the configured output directory is empty, set this builds output dir to the root of the projects workspace
-        FilePath outDirPath;
-        if (StringUtils.isBlank(outdir)) {
-            outDirPath = build.getWorkspace();
-        } else {
-            outDirPath = new FilePath(build.getWorkspace(), substituteVariable(build, listener, outdir.trim()));
-        }
-        options.setOutputDirectory(outDirPath);
+        // Begin configuration for Builder specific settings
 
+        // SUPPRESSION FILE
         if (StringUtils.isNotBlank(suppressionFile)) {
+            String tmpSuppressionFile = substituteVariable(build, listener, suppressionFile.trim());
             try {
                 // Try to set the suppression file as a URL
-                options.setSuppressionFile(new URL(suppressionFile.trim()));
+                options.setSuppressionFile(new URL(tmpSuppressionFile).toExternalForm());
             } catch (MalformedURLException e) {
                 // If the format is not a valid URL, set it as a FilePath type
-                options.setSuppressionFile(new FilePath(build.getWorkspace(), substituteVariable(build, listener, suppressionFile.trim())));
+                options.setSuppressionFile(new FilePath(build.getWorkspace(), tmpSuppressionFile).getRemote());
             }
         }
 
@@ -312,73 +243,34 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
             options.setZipExtensions(toCommaSeparatedString(zipExtensions));
         }
 
-        configureDataDirectory(build, listener, options);
-
-        final FilePath log = new FilePath(build.getWorkspace(), "dependency-check.log");
-        //FilePath logLock = new FilePath(build.getWorkspace(), "dependency-check.log.lck");
-        //deleteFilePath(log); // Uncomment to clear out the logs between builds
-        //deleteFilePath(logLock);
-        if (isVerboseLoggingEnabled) {
-            options.setVerboseLoggingFile(log);
-        }
-
-        options.setDataMirroringType(this.getDescriptor().dataMirroringType);
-        if (options.getDataMirroringType() != 0) {
-            final String cveUrl12Modified = this.getDescriptor().cveUrl12Modified;
-            final String cveUrl20Modified = this.getDescriptor().cveUrl20Modified;
-            final String cveUrl12Base = this.getDescriptor().cveUrl12Base;
-            final String cveUrl20Base = this.getDescriptor().cveUrl20Base;
-
-            if (!StringUtils.isBlank(cveUrl12Modified) && !StringUtils.isBlank(cveUrl20Modified)
-                    && !StringUtils.isBlank(cveUrl12Base) && !StringUtils.isBlank(cveUrl20Base)) {
-                try {
-                    options.setCveUrl12Modified(new URL(cveUrl12Modified));
-                    options.setCveUrl20Modified(new URL(cveUrl20Modified));
-                    options.setCveUrl12Base(new URL(cveUrl12Base));
-                    options.setCveUrl20Base(new URL(cveUrl20Base));
-                } catch (MalformedURLException e) {
-                    // todo: need to log this or otherwise warn.
-                }
-            }
-        }
-
-        // Proxy settings
-        final ProxyConfiguration proxy = Jenkins.getInstance() != null ? Jenkins.getInstance().proxy : null;
-        if (!this.getDescriptor().isNvdProxyBypassed && proxy != null) {
-            if (!StringUtils.isBlank(proxy.name)) {
-                options.setProxyServer(proxy.name);
-                options.setProxyPort(proxy.port);
-            }
-            if (!StringUtils.isBlank(proxy.getUserName())) {
-                options.setProxyUsername(proxy.getUserName());
-            }
-            if (!StringUtils.isBlank(proxy.getPassword())) {
-                options.setProxyPassword(proxy.getPassword());
-            }
-        }
-
         // If specified to use Maven artifacts as the scan path - get them and populate the options
         if (useMavenArtifactsScanPath && build.getProject() instanceof AbstractMavenProject) {
             options.setUseMavenArtifactsScanPath(true);
-            final ArrayList<FilePath> artifacts = determineMavenArtifacts(build, listener);
+            final ArrayList<String> artifacts = determineMavenArtifacts(build, listener);
             options.setScanPath(artifacts);
         } else {
             options.setUseMavenArtifactsScanPath(false);
             // Support for multiple scan paths in a single analysis
             for (String tmpscanpath : scanpath.split(",")) {
                 final FilePath filePath = new FilePath(build.getWorkspace(), substituteVariable(build, listener, tmpscanpath.trim()));
-                options.addScanPath(filePath);
+                options.addScanPath(filePath.getRemote());
             }
         }
-        options.setWorkspace(build.getWorkspace().getRemote());
+
 
         // Enable/Disable Analyzers
         options.setJarAnalyzerEnabled(this.getDescriptor().isJarAnalyzerEnabled);
-        options.setJavascriptAnalyzerEnabled(this.getDescriptor().isJavascriptAnalyzerEnabled);
+        options.setNodeJsAnalyzerEnabled(this.getDescriptor().isNodeJsAnalyzerEnabled);
+        options.setComposerLockAnalyzerEnabled(this.getDescriptor().isComposerLockAnalyzerEnabled);
+        options.setPythonAnalyzerEnabled(this.getDescriptor().isPythonAnalyzerEnabled);
+        options.setRubyGemAnalyzerEnabled(this.getDescriptor().isRubyGemAnalyzerEnabled);
         options.setArchiveAnalyzerEnabled(this.getDescriptor().isArchiveAnalyzerEnabled);
         options.setAssemblyAnalyzerEnabled(this.getDescriptor().isAssemblyAnalyzerEnabled);
         options.setNuspecAnalyzerEnabled(this.getDescriptor().isNuspecAnalyzerEnabled);
         options.setNexusAnalyzerEnabled(this.getDescriptor().isNexusAnalyzerEnabled);
+        options.setAutoconfAnalyzerEnabled(this.getDescriptor().isAutoconfAnalyzerEnabled);
+        options.setCmakeAnalyzerEnabled(this.getDescriptor().isCmakeAnalyzerEnabled);
+        options.setOpensslAnalyzerEnabled(this.getDescriptor().isOpensslAnalyzerEnabled);
         // Nexus options
         if (this.getDescriptor().isNexusAnalyzerEnabled && StringUtils.isNotBlank(this.getDescriptor().nexusUrl)) {
             try {
@@ -399,12 +291,7 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
 
         // Only set the Mono path if running on non-Windows systems.
         if (!SystemUtils.IS_OS_WINDOWS && StringUtils.isNotBlank(this.getDescriptor().monoPath)) {
-            options.setMonoPath(new FilePath(new File(this.getDescriptor().monoPath)));
-        }
-
-        // If temp path has been specified, use it, otherwise Dependency-Check will default to the Java temp path
-        if (StringUtils.isNotBlank(this.getDescriptor().tempPath)) {
-            options.setTempPath(new FilePath(new File(substituteVariable(build, listener, this.getDescriptor().tempPath))));
+            options.setMonoPath(this.getDescriptor().monoPath);
         }
 
         options.setAutoUpdate(!isAutoupdateDisabled);
@@ -416,8 +303,9 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
         return options;
     }
 
-    private ArrayList<FilePath> determineMavenArtifacts(AbstractBuild build, BuildListener listener) {
-        final ArrayList<FilePath> artifacts = new ArrayList<FilePath>();
+    @Deprecated
+    private ArrayList<String> determineMavenArtifacts(AbstractBuild build, BuildListener listener) {
+        final ArrayList<String> artifacts = new ArrayList<String>();
         try {
             if (build.getProject() instanceof MavenModuleSet) {
                 final MavenModuleSet mavenModuleSet = (MavenModuleSet) build.getProject();
@@ -437,7 +325,7 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
                     while ((line = br.readLine()) != null) {
                         final FilePath artifact = new FilePath(new File(line));
                         if (artifact.exists()) {
-                            artifacts.add(artifact);
+                            artifacts.add(artifact.getRemote());
                         }
                     }
                     br.close();
@@ -459,7 +347,7 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
                 while ((line = br.readLine()) != null) {
                     final FilePath artifact = new FilePath(new File(line));
                     if (artifact.exists()) {
-                            artifacts.add(artifact);
+                        artifacts.add(artifact.getRemote());
                     }
                 }
                 br.close();
@@ -471,80 +359,6 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
             listener.getLogger().println(e);
         }
         return artifacts;
-    }
-
-    private boolean deleteFilePath(FilePath filePath) {
-        try {
-            if (filePath.exists()) {
-                filePath.delete();
-            }
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * By default, DependencyCheck will place the 'data' directory in the same directory
-     * as the DependencyCheck JAR. We need to overwrite these settings and account for
-     * the fact that in a multi-node Jenkins cluster, a centralized data directory may
-     * not be possible. Therefore, a subdirectory in the builds workspace is used.
-     *
-     * @return A boolean indicating if any errors occurred during the validation process
-     */
-    private boolean configureDataDirectory(AbstractBuild build, BuildListener listener, Options options) {
-        FilePath dataPath;
-        if (StringUtils.isBlank(datadir)) {
-            // datadir was not specified, so use the default 'dependency-check-data' directory
-            // located in the builds workspace.
-            dataPath = new FilePath(build.getWorkspace(), "dependency-check-data");
-            try {
-                if (build.getWorkspace() == null || !build.getWorkspace().exists()) {
-                    throw new IOException("Jenkins workspace directory not available. Once a build is complete, Jenkins may use the workspace to build something else, or remove it entirely.");
-                }
-            } catch (Exception e) {
-                return false;
-            }
-        } else {
-            // datadir was specified.
-            dataPath = new FilePath(build.getWorkspace(), substituteVariable(build, listener, datadir));
-        }
-        options.setDataDirectory(dataPath);
-        return true;
-    }
-
-    /**
-     * Replace a Jenkins environment variable in the form ${name} contained in the
-     * specified String with the value of the matching environment variable.
-     */
-    private String substituteVariable(AbstractBuild build, BuildListener listener, String parameterizedValue) {
-        try {
-            if (parameterizedValue != null && parameterizedValue.contains("${")) {
-                final int start = parameterizedValue.indexOf("${");
-                final int end = parameterizedValue.indexOf("}", start);
-                final String parameter = parameterizedValue.substring(start + 2, end);
-                final String value = build.getEnvironment(listener).get(parameter);
-                if (value == null) {
-                    throw new IllegalStateException(parameter);
-                }
-                final String substitutedValue = parameterizedValue.substring(0, start) + value + (parameterizedValue.length() > end + 1 ? parameterizedValue.substring(end + 1) : "");
-                if (end > 0) { // recursively substitute variables
-                    return substituteVariable(build, listener, substitutedValue);
-                } else {
-                    return parameterizedValue;
-                }
-            } else {
-                return parameterizedValue;
-            }
-        } catch (Exception e) {
-            return parameterizedValue;
-        }
-    }
-
-    private String toCommaSeparatedString(String input) {
-        input = input.trim();
-        input = input.replaceAll(" +", ",");
-        return input;
     }
 
     /**
@@ -602,9 +416,24 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
         private boolean isJarAnalyzerEnabled = true;
 
         /**
-         * Specifies if the Javascript analyzer should be enabled or not
+         * Specifies if the Node.js analyzer should be enabled or not
          */
-        private boolean isJavascriptAnalyzerEnabled = true;
+        private boolean isNodeJsAnalyzerEnabled = true;
+
+        /**
+         * Specifies if the PHP Composer.lock analyzer should be enabled or not
+         */
+        private boolean isComposerLockAnalyzerEnabled = true;
+
+        /**
+         * Specifies if the Python analyzer should be enabled or not
+         */
+        private boolean isPythonAnalyzerEnabled = true;
+
+        /**
+         * Specifies if the Ruby Gem analyzer should be enabled or not
+         */
+        private boolean isRubyGemAnalyzerEnabled = true;
 
         /**
          * Specifies if the archive analyzer should be enabled or not
@@ -632,6 +461,21 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
         private boolean isNexusAnalyzerEnabled = false;
 
         /**
+         * Specifies if the autoconf analyzer should be enabled or not
+         */
+        private boolean isAutoconfAnalyzerEnabled = true;
+
+        /**
+         * Specifies if the cmake analyzer should be enabled or not
+         */
+        private boolean isCmakeAnalyzerEnabled = true;
+
+        /**
+         * Specifies if the OpenSSL analyzer should be enabled or not
+         */
+        private boolean isOpensslAnalyzerEnabled = true;
+
+        /**
          * Specifies the Nexus URL to use when enabled
          */
         private String nexusUrl;
@@ -650,6 +494,11 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
          * Specifies the full path to the temporary directory
          */
         private String tempPath;
+
+        /**
+         * Specifies if QuickQuery is enabled or not. If enabled, HTTP HEAD will be used.
+         */
+        private boolean isQuickQueryTimestampEnabled = true;
 
         public DescriptorImpl() {
             super(DependencyCheckBuilder.class);
@@ -758,16 +607,23 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
             cveUrl12Base = formData.getString("cveUrl12Base");
             cveUrl20Base = formData.getString("cveUrl20Base");
             isJarAnalyzerEnabled = formData.getBoolean("isJarAnalyzerEnabled");
-            isJavascriptAnalyzerEnabled = formData.getBoolean("isJavascriptAnalyzerEnabled");
+            isNodeJsAnalyzerEnabled = formData.getBoolean("isNodeJsAnalyzerEnabled");
+            isComposerLockAnalyzerEnabled = formData.getBoolean("isComposerLockAnalyzerEnabled");
+            isPythonAnalyzerEnabled = formData.getBoolean("isPythonAnalyzerEnabled");
+            isRubyGemAnalyzerEnabled = formData.getBoolean("isRubyGemAnalyzerEnabled");
             isArchiveAnalyzerEnabled = formData.getBoolean("isArchiveAnalyzerEnabled");
             isAssemblyAnalyzerEnabled = formData.getBoolean("isAssemblyAnalyzerEnabled");
             isCentralAnalyzerEnabled = formData.getBoolean("isCentralAnalyzerEnabled");
             isNuspecAnalyzerEnabled = formData.getBoolean("isNuspecAnalyzerEnabled");
             isNexusAnalyzerEnabled = formData.getBoolean("isNexusAnalyzerEnabled");
+            isAutoconfAnalyzerEnabled = formData.getBoolean("isAutoconfAnalyzerEnabled");
+            isCmakeAnalyzerEnabled = formData.getBoolean("isCmakeAnalyzerEnabled");
+            isOpensslAnalyzerEnabled = formData.getBoolean("isOpensslAnalyzerEnabled");
             nexusUrl = formData.getString("nexusUrl");
             isNexusProxyBypassed = formData.getBoolean("isNexusProxyBypassed");
             monoPath = formData.getString("monoPath");
             tempPath = formData.getString("tempPath");
+            isQuickQueryTimestampEnabled = formData.getBoolean("isQuickQueryTimestampEnabled");
             save();
             return super.configure(req, formData);
         }
@@ -820,24 +676,49 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
         public boolean getIsJarAnalyzerEnabled() {
             return isJarAnalyzerEnabled;
         }
+
         /**
-         * Returns the global configuration for enabling the Javascript analyzer.
+         * Returns the global configuration for enabling the Node.js analyzer.
          */
-        public boolean getIsJavascriptAnalyzerEnabled() {
-            return isJavascriptAnalyzerEnabled;
+        public boolean getIsNodeJsAnalyzerEnabled() {
+            return isNodeJsAnalyzerEnabled;
         }
+
+        /**
+         * Returns the global configuration for enabling the PHP Composer.lock analyzer.
+         */
+        public boolean getIsComposerLockAnalyzerEnabled() {
+            return isComposerLockAnalyzerEnabled;
+        }
+
+        /**
+         * Returns the global configuration for enabling the Python analyzer.
+         */
+        public boolean getIsPythonAnalyzerEnabled() {
+            return isPythonAnalyzerEnabled;
+        }
+
+        /**
+         * Returns the global configuration for enabling the Ruby Gem analyzer.
+         */
+        public boolean getIsRubyGemAnalyzerEnabled() {
+            return isRubyGemAnalyzerEnabled;
+        }
+
         /**
          * Returns the global configuration for enabling the Archive analyzer.
          */
         public boolean getIsArchiveAnalyzerEnabled() {
             return isArchiveAnalyzerEnabled;
         }
+
         /**
          * Returns the global configuration for enabling the Assembly analyzer.
          */
         public boolean getIsAssemblyAnalyzerEnabled() {
             return isAssemblyAnalyzerEnabled;
         }
+
         /**
          * Returns the global configuration for enabling the NuSpec analyzer.
          */
@@ -857,6 +738,27 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
          */
         public boolean getIsNexusAnalyzerEnabled() {
             return isNexusAnalyzerEnabled;
+        }
+
+        /**
+         * Returns the global configuration for enabling the autoconf analyzer.
+         */
+        public boolean getIsAutoconfAnalyzerEnabled() {
+            return isAutoconfAnalyzerEnabled;
+        }
+
+        /**
+         * Returns the global configuration for enabling the cmake analyzer.
+         */
+        public boolean getIsCmakeAnalyzerEnabled() {
+            return isCmakeAnalyzerEnabled;
+        }
+
+        /**
+         * Returns the global configuration for enabling the OpenSSL analyzer.
+         */
+        public boolean getIsOpensslAnalyzerEnabled() {
+            return isOpensslAnalyzerEnabled;
         }
 
         /**
@@ -885,6 +787,13 @@ public class DependencyCheckBuilder extends Builder implements Serializable {
          */
         public String getTempPath() {
             return tempPath;
+        }
+
+        /**
+         * Returns if QuickQuery is enabled or not. If enabled, HTTP HEAD will be used.
+         */
+        public boolean getIsQuickQueryTimestampEnabled() {
+            return isQuickQueryTimestampEnabled;
         }
 
     }

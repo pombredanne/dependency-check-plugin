@@ -15,7 +15,6 @@
  */
 package org.jenkinsci.plugins.DependencyCheck;
 
-import hudson.FilePath;
 import org.owasp.dependencycheck.reporting.ReportGenerator;
 
 import java.io.Serializable;
@@ -46,17 +45,17 @@ public class Options implements Serializable {
     /**
      * Specifies the directory[s] to scan.
      */
-    private ArrayList<FilePath> scanPath = new ArrayList<FilePath>();
+    private ArrayList<String> scanPath = new ArrayList<String>();
 
     /**
      * Specifies the destination directory for the generated report.
      */
-    private FilePath outputDirectory;
+    private String outputDirectory;
 
     /**
      * Specifies the data directory.
      */
-    private FilePath dataDirectory;
+    private String dataDirectory;
 
     /**
      * Boolean value (true/false) whether or not the evidence collected
@@ -76,14 +75,20 @@ public class Options implements Serializable {
     private boolean autoUpdate = true;
 
     /**
+     * Sets whether an NVD update should be the only thing performed. If true,
+     * a scan will not be performed.
+     */
+    private boolean updateOnly = false;
+
+    /**
      * Specifies the verbose logging file to use
      */
-    private FilePath verboseLoggingFile;
+    private String verboseLoggingFile;
 
     /**
      * Specifies the suppression file to use
      */
-    private Serializable suppressionFile;
+    private String suppressionFile;
 
     /**
      * Specifies the file extensions to be treated a ZIP
@@ -136,6 +141,12 @@ public class Options implements Serializable {
     private String proxyPassword;
 
     /**
+     * Specifies is the HTTP GET method is used for timestamp retrieval instead of HTTP HEAD.
+     * If QuickQuery is enabled, HTTP HEAD will be used.
+     */
+    private boolean isQuickQueryTimestampEnabled = true;
+
+    /**
      * Specifies if the scan path is solely populated by Maven artifacts
      */
     private boolean useMavenArtifactsScanPath;
@@ -146,9 +157,24 @@ public class Options implements Serializable {
     private boolean jarAnalyzerEnabled;
 
     /**
-     * Specifies if the Javascript analyzer is enabled
+     * Specifies if the Node.js analyzer is enabled
      */
-    private boolean javascriptAnalyzerEnabled;
+    private boolean nodeJsAnalyzerEnabled;
+
+    /**
+     * Specifies if the PHP Composer.lock analyzer is enabled
+     */
+    private boolean composerLockAnalyzerEnabled;
+
+    /**
+     * Specifies if the Python analyzer is enabled
+     */
+    private boolean pythonAnalyzerEnabled;
+
+    /**
+     * Specifies if the Ruby Gem analyzer is enabled
+     */
+    private boolean rubyGemAnalyzerEnabled;
 
     /**
      * Specifies if the Archive analyzer is enabled
@@ -169,6 +195,21 @@ public class Options implements Serializable {
      * Specifies if the Nexus analyzer is enabled
      */
     private boolean nexusAnalyzerEnabled;
+
+    /**
+     * Specifies if the autoconf analyzer is enabled
+     */
+    private boolean autoconfAnalyzerEnabled;
+
+    /**
+     * Specifies if the cmake analyzer is enabled
+     */
+    private boolean cmakeAnalyzerEnabled;
+
+    /**
+     * Specifies if the OpenSSL analyzer is enabled
+     */
+    private boolean opensslAnalyzerEnabled;
 
     /**
      * Specifies the Nexus URL to use if enabled
@@ -193,12 +234,12 @@ public class Options implements Serializable {
     /**
      * Specifies the full path and filename to the Mono binary
      */
-    private FilePath monoPath;
+    private String monoPath;
 
     /**
      * Specifies the full path to the temporary directory
      */
-    private FilePath tempPath;
+    private String tempPath;
 
     /**
      * Returns the path to the project workspace.
@@ -224,23 +265,23 @@ public class Options implements Serializable {
     /**
      * Returns the files and/or directory[s] to scan.
      */
-    public ArrayList<FilePath> getScanPath() {
+    public ArrayList<String> getScanPath() {
         return scanPath;
     }
 
     /**
      * Sets the file[s] and/or directory[s] to scan.
      */
-    public void setScanPath(ArrayList<FilePath> scanPath) {
+    public void setScanPath(ArrayList<String> scanPath) {
         this.scanPath = scanPath;
     }
 
     /**
      * Add a file and/or directory to scan.
      */
-    public void addScanPath(FilePath scanPath) {
+    public void addScanPath(String scanPath) {
         if (this.scanPath == null) {
-            this.scanPath = new ArrayList<FilePath>();
+            this.scanPath = new ArrayList<String>();
         }
         this.scanPath.add(scanPath);
     }
@@ -248,21 +289,21 @@ public class Options implements Serializable {
     /**
      * Returns the destination directory for the generated report.
      */
-    public FilePath getOutputDirectory() {
+    public String getOutputDirectory() {
         return outputDirectory;
     }
 
     /**
      * Sets the destination directory for the generated report.
      */
-    public void setOutputDirectory(FilePath outputDirectory) {
+    public void setOutputDirectory(String outputDirectory) {
         this.outputDirectory = outputDirectory;
     }
 
     /**
      * Returns the data directory.
      */
-    public FilePath getDataDirectory() {
+    public String getDataDirectory() {
         return dataDirectory;
     }
 
@@ -276,7 +317,7 @@ public class Options implements Serializable {
     /**
      * Sets the data directory.
      */
-    public void setDataDirectory(FilePath dataDirectory) {
+    public void setDataDirectory(String dataDirectory) {
         this.dataDirectory = dataDirectory;
     }
 
@@ -327,9 +368,24 @@ public class Options implements Serializable {
     }
 
     /**
+     * Returns whether updates should be the only task performed.
+     */
+    public boolean isUpdateOnly() {
+        return updateOnly;
+    }
+
+    /**
+     * Sets whether an NVD update should be the only thing performed. If true,
+     * a scan will not be performed.
+     */
+    public void setUpdateOnly(boolean updateOnly) {
+        this.updateOnly = updateOnly;
+    }
+
+    /**
      * Returns the verbose logging file.
      */
-    public FilePath getVerboseLoggingFile() {
+    public String getVerboseLoggingFile() {
         return verboseLoggingFile;
     }
 
@@ -337,44 +393,22 @@ public class Options implements Serializable {
      * Sets whether verbose logging of the Dependency-Check engine and analyzers
      * is enabled.
      */
-    public void setVerboseLoggingFile(FilePath file) {
+    public void setVerboseLoggingFile(String file) {
         this.verboseLoggingFile = file;
     }
 
     /**
      * Returns the suppression file.
      */
-    public Serializable getSuppressionFile() {
+    public String getSuppressionFile() {
         return suppressionFile;
     }
 
     /**
      * Sets the suppression file to use.
      */
-    public void setSuppressionFile(Serializable file) {
+    public void setSuppressionFile(String file) {
         this.suppressionFile = file;
-    }
-
-    /**
-     * Returns the suppression file.
-     */
-    public URL getSuppressionUrl() {
-        if (suppressionFile instanceof URL) {
-            return (URL) suppressionFile;
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * Returns the suppression file.
-     */
-    public FilePath getSuppressionFilePath() {
-        if (suppressionFile instanceof FilePath) {
-            return (FilePath) suppressionFile;
-        } else {
-            return null;
-        }
     }
 
     /**
@@ -518,15 +552,37 @@ public class Options implements Serializable {
     }
 
     /**
-     * Returns if the scan path is solely populated by Maven artifacts.
+     * Returns if HTTP GET is used to retrieve timestamp information instead of HTTP HEAD.
+     * If QuickQuery is enabled, HTTP HEAD will be used.
      */
+    public boolean isQuickQueryTimestampEnabled() {
+        return isQuickQueryTimestampEnabled;
+    }
+
+    /**
+     * Sets if HTTP GET is used to retrieve timestamp information instead of HTTP HEAD.
+     * If QuickQuery is enabled, HTTP HEAD will be used.
+     */
+    public void setIsQuickQueryTimestampEnabled(boolean isQuickQueryTimestampEnabled) {
+        this.isQuickQueryTimestampEnabled = isQuickQueryTimestampEnabled;
+    }
+
+    /**
+     * Returns if the scan path is solely populated by Maven artifacts.
+     *
+     * @deprecated will be removed in a future version
+     */
+    @Deprecated
     public boolean getUseMavenArtifactsScanPath() {
         return useMavenArtifactsScanPath;
     }
 
     /**
      * Sets if the scan path is solely populated by Maven artifacts.
+     *
+     * @deprecated will be removed in a future version
      */
+    @Deprecated
     public void setUseMavenArtifactsScanPath(boolean useMavenArtifactsScanPath) {
         this.useMavenArtifactsScanPath = useMavenArtifactsScanPath;
     }
@@ -546,17 +602,59 @@ public class Options implements Serializable {
     }
 
     /**
-     * Returns if the Javascript analyzer is enabled or not.
+     * Returns if the Node.js analyzer is enabled or not.
      */
-    public boolean isJavascriptAnalyzerEnabled() {
-        return javascriptAnalyzerEnabled;
+    public boolean isNodeJsAnalyzerEnabled() {
+        return nodeJsAnalyzerEnabled;
     }
 
     /**
-     * Sets if the Javascript analyzer is enabled or not.
+     * Sets if the Node.js analyzer is enabled or not.
      */
-    public void setJavascriptAnalyzerEnabled(boolean javascriptAnalyzerEnabled) {
-        this.javascriptAnalyzerEnabled = javascriptAnalyzerEnabled;
+    public void setNodeJsAnalyzerEnabled(boolean nodeJsAnalyzerEnabled) {
+        this.nodeJsAnalyzerEnabled = nodeJsAnalyzerEnabled;
+    }
+
+    /**
+     * Returns if the PHP Composer.lock analyzer is enabled or not.
+     */
+    public boolean isComposerLockAnalyzerEnabled() {
+        return composerLockAnalyzerEnabled;
+    }
+
+    /**
+     * Sets if the PHP Composer.lock analyzer is enabled or not.
+     */
+    public void setComposerLockAnalyzerEnabled(boolean composerLockAnalyzerEnabled) {
+        this.composerLockAnalyzerEnabled = composerLockAnalyzerEnabled;
+    }
+
+    /**
+     * Returns if the Python analyzer is enabled or not.
+     */
+    public boolean isPythonAnalyzerEnabled() {
+        return pythonAnalyzerEnabled;
+    }
+
+    /**
+     * Sets if the Python analyzer is enabled or not.
+     */
+    public void setPythonAnalyzerEnabled(boolean pythonAnalyzerEnabled) {
+        this.pythonAnalyzerEnabled = pythonAnalyzerEnabled;
+    }
+
+    /**
+     * Returns if the Ruby Gem analyzer is enabled or not.
+     */
+    public boolean isRubyGemAnalyzerEnabled() {
+        return rubyGemAnalyzerEnabled;
+    }
+
+    /**
+     * Sets if the Ruby Gem analyzer is enabled or not.
+     */
+    public void setRubyGemAnalyzerEnabled(boolean rubyGemAnalyzerEnabled) {
+        this.rubyGemAnalyzerEnabled = rubyGemAnalyzerEnabled;
     }
 
     /**
@@ -613,6 +711,48 @@ public class Options implements Serializable {
      */
     public void setNexusAnalyzerEnabled(boolean nexusAnalyzerEnabled) {
         this.nexusAnalyzerEnabled = nexusAnalyzerEnabled;
+    }
+
+    /**
+     * Returns if the autoconf analyzer is enabled or not.
+     */
+    public boolean isAutoconfAnalyzerEnabled() {
+        return autoconfAnalyzerEnabled;
+    }
+
+    /**
+     * Sets if the autoconf analyzer is enabled or not.
+     */
+    public void setAutoconfAnalyzerEnabled(boolean autoconfAnalyzerEnabled) {
+        this.autoconfAnalyzerEnabled = autoconfAnalyzerEnabled;
+    }
+
+    /**
+     * Returns if the cmake analyzer is enabled or not.
+     */
+    public boolean isCmakeAnalyzerEnabled() {
+        return cmakeAnalyzerEnabled;
+    }
+
+    /**
+     * Sets if the cmake analyzer is enabled or not.
+     */
+    public void setCmakeAnalyzerEnabled(boolean cmakeAnalyzerEnabled) {
+        this.cmakeAnalyzerEnabled = cmakeAnalyzerEnabled;
+    }
+
+    /**
+     * Returns if the OpenSSL analyzer is enabled or not.
+     */
+    public boolean isOpensslAnalyzerEnabled() {
+        return opensslAnalyzerEnabled;
+    }
+
+    /**
+     * Sets if the OpenSSL analyzer is enabled or not.
+     */
+    public void setOpensslAnalyzerEnabled(boolean opensslAnalyzerEnabled) {
+        this.opensslAnalyzerEnabled = opensslAnalyzerEnabled;
     }
 
     /**
@@ -674,28 +814,28 @@ public class Options implements Serializable {
     /**
      * Returns the full path and filename to the Mono binary.
      */
-    public FilePath getMonoPath() {
+    public String getMonoPath() {
         return monoPath;
     }
 
     /**
      * Specifies the full path and filename to the mono binary.
      */
-    public void setMonoPath(FilePath monoPath) {
+    public void setMonoPath(String monoPath) {
         this.monoPath = monoPath;
     }
 
     /**
      * Returns the full path of the temporary directory.
      */
-    public FilePath getTempPath() {
+    public String getTempPath() {
         return tempPath;
     }
 
     /**
      * Specifies the full path of the temporary directory.
      */
-    public void setTempPath(FilePath tempPath) {
+    public void setTempPath(String tempPath) {
         this.tempPath = tempPath;
     }
 
@@ -707,31 +847,28 @@ public class Options implements Serializable {
         } else {
             sb.append(" -name = ").append(name).append("\n");
         }
-        if (scanPath == null || scanPath.size() == 0) {
+        if (!updateOnly && (scanPath == null || scanPath.size() == 0)) {
             sb.append(" -scanPath = ").append("ERROR - PATH NOT SPECIFIED OR INVALID.\n");
         } else {
-            for (FilePath filePath: scanPath) {
-                sb.append(" -scanPath = ").append(filePath.getRemote()).append("\n");
+            for (String filePath: scanPath) {
+                sb.append(" -scanPath = ").append(filePath).append("\n");
             }
         }
         if (outputDirectory == null) {
             sb.append(" -outputDirectory = ").append("ERROR - OUTPUT DIRECTORY NOT SPECIFIED OR INVALID.\n");
         } else {
-            sb.append(" -outputDirectory = ").append(outputDirectory.getRemote()).append("\n");
+            sb.append(" -outputDirectory = ").append(outputDirectory).append("\n");
         }
         if (dataDirectory == null) {
             sb.append(" -dataDirectory = ").append("ERROR - DATA DIRECTORY NOT SPECIFIED OR INVALID.\n");
         } else {
-            sb.append(" -dataDirectory = ").append(dataDirectory.getRemote()).append("\n");
+            sb.append(" -dataDirectory = ").append(dataDirectory).append("\n");
         }
         if (verboseLoggingFile != null) {
-            sb.append(" -verboseLogFile = ").append(verboseLoggingFile.getRemote()).append("\n");
+            sb.append(" -verboseLogFile = ").append(verboseLoggingFile).append("\n");
         }
-        if (getSuppressionFilePath() != null) {
-            sb.append(" -suppressionFile = ").append(getSuppressionFilePath().getRemote()).append("\n");
-        }
-        if (getSuppressionUrl() != null) {
-            sb.append(" -suppressionFile = ").append(getSuppressionUrl()).append("\n");
+        if (suppressionFile != null) {
+            sb.append(" -suppressionFile = ").append(suppressionFile).append("\n");
         }
         if (zipExtensions != null) {
             sb.append(" -zipExtensions = ").append(zipExtensions).append("\n");
@@ -772,15 +909,22 @@ public class Options implements Serializable {
             sb.append(" -proxyPassword = ").append("********").append("\n");
         }
 
+        sb.append(" -isQuickQueryTimestampEnabled = ").append(isQuickQueryTimestampEnabled).append("\n");
         sb.append(" -useMavenArtifactsScanPath = ").append(useMavenArtifactsScanPath).append("\n");
 
         sb.append(" -jarAnalyzerEnabled = ").append(jarAnalyzerEnabled).append("\n");
-        sb.append(" -javascriptAnalyzerEnabled = ").append(javascriptAnalyzerEnabled).append("\n");
+        sb.append(" -nodeJsAnalyzerEnabled = ").append(nodeJsAnalyzerEnabled).append("\n");
+        sb.append(" -composerLockAnalyzerEnabled = ").append(composerLockAnalyzerEnabled).append("\n");
+        sb.append(" -pythonAnalyzerEnabled = ").append(pythonAnalyzerEnabled).append("\n");
+        sb.append(" -rubyGemAnalyzerEnabled = ").append(rubyGemAnalyzerEnabled).append("\n");
         sb.append(" -archiveAnalyzerEnabled = ").append(archiveAnalyzerEnabled).append("\n");
         sb.append(" -assemblyAnalyzerEnabled = ").append(assemblyAnalyzerEnabled).append("\n");
         sb.append(" -centralAnalyzerEnabled = ").append(centralAnalyzerEnabled).append("\n");
         sb.append(" -nuspecAnalyzerEnabled = ").append(nuspecAnalyzerEnabled).append("\n");
         sb.append(" -nexusAnalyzerEnabled = ").append(nexusAnalyzerEnabled).append("\n");
+        sb.append(" -autoconfAnalyzerEnabled = ").append(autoconfAnalyzerEnabled).append("\n");
+        sb.append(" -cmakeAnalyzerEnabled = ").append(cmakeAnalyzerEnabled).append("\n");
+        sb.append(" -opensslAnalyzerEnabled = ").append(opensslAnalyzerEnabled).append("\n");
         if (nexusAnalyzerEnabled && nexusUrl != null) {
             sb.append(" -nexusUrl = ").append(nexusUrl.toExternalForm()).append("\n");
         }
@@ -788,14 +932,15 @@ public class Options implements Serializable {
             sb.append(" -nexusProxyBypassed = ").append(nexusProxyBypass).append("\n");
         }
         if (monoPath != null) {
-            sb.append(" -monoPath = ").append(monoPath.getRemote()).append("\n");
+            sb.append(" -monoPath = ").append(monoPath).append("\n");
         }
         if (tempPath != null) {
-            sb.append(" -tempPath = ").append(tempPath.getRemote()).append("\n");
+            sb.append(" -tempPath = ").append(tempPath).append("\n");
         }
         sb.append(" -showEvidence = ").append(showEvidence).append("\n");
         sb.append(" -format = ").append(format.name()).append("\n");
-        sb.append(" -autoUpdate = ").append(autoUpdate);
+        sb.append(" -autoUpdate = ").append(autoUpdate).append("\n");
+        sb.append(" -updateOnly = ").append(updateOnly);
         return sb.toString();
     }
 
